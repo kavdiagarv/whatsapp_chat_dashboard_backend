@@ -9,6 +9,8 @@ router.get('/escalated-sessions', chatController.getEscalatedSessions);
 router.get('/escalated-messages', chatController.getEscalatedChatLogs);
 router.post('/message', chatController.sendMessage);
 router.post('/assign/:session_id', chatController.assignAgent);
-router.get('/unread/sessions', chatController.getSessionsWithUnread)
+router.get('/unread/sessions', chatController.getSessionsWithUnread);
+router.get('/bulk-orders', chatController.getBulkOrders);
+router.get('/bulk-orders/unread', chatController.getBulkOrderSessionsWithUnread);
 
 module.exports = router;

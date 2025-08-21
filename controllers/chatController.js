@@ -35,6 +35,17 @@ exports.getEscalatedSessions = async (req, res) => {
   }
 };
 
+exports.getBulkOrders = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT bod.* FROM bulk_orders_data bod INNER JOIN chat_sessions cs on bod.session_id = cs.session_id WHERE cs.status = 'escalated' ORDER BY bod.created_at DESC`);
+    res.json(result.rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Error fetching bulk orders');
+  }
+};
+
 exports.getEscalatedChatLogs = async (req, res) => {
   try {
     const result = await pool.query(`SELECT cl.* FROM chat_logs cl INNER JOIN chat_sessions cs ON cl.session_id = cs.session_id WHERE cs.status = 'escalated' ORDER BY cl.timestamp ASC`);
@@ -172,6 +183,48 @@ exports.getSessionsWithUnread = async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('Error fetching sessions with unread:', err);
+    res.status(500).send('Server error');
+  }
+};
+
+exports.getBulkOrderSessionsWithUnread = async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        cs.session_id,
+        cs.status,
+        cs.started_at,
+        bod.name,
+        bod.phone_no,
+        bod.product_name,
+        bod.quantity,
+        bod.address,
+        COALESCE(unread.count, 0) AS unread_count
+      FROM chat_sessions cs
+      LEFT JOIN bulk_orders_data bod 
+        ON bod.session_id = cs.session_id
+      LEFT JOIN (
+        SELECT 
+          session_id,
+          COUNT(*) AS count
+        FROM chat_logs l
+        WHERE direction = 'incoming'
+          AND timestamp > COALESCE((
+            SELECT MAX(timestamp)
+            FROM chat_logs
+            WHERE chat_logs.session_id = l.session_id
+              AND direction = 'outbound'
+          ), '1970-01-01')
+        GROUP BY session_id
+      ) AS unread 
+        ON cs.session_id = unread.session_id
+      WHERE cs.status = 'escalated'
+      ORDER BY cs.started_at DESC;
+    `);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching bulk order sessions with unread:', err);
     res.status(500).send('Server error');
   }
 };

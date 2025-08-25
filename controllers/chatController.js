@@ -176,7 +176,9 @@ exports.getSessionsWithUnread = async (req, res) => {
               AND direction = 'outbound'
           ), '1970-01-01')
         GROUP BY session_id
-      ) AS unread ON cs.session_id = unread.session_id
+      ) AS unread 
+       ON cs.session_id = unread.session_id
+      WHERE cs.status = 'escalated' and cs.user_stage = 'escalated'
       ORDER BY cs.started_at DESC;
     `);
 
@@ -218,7 +220,7 @@ exports.getBulkOrderSessionsWithUnread = async (req, res) => {
         GROUP BY session_id
       ) AS unread 
         ON cs.session_id = unread.session_id
-      WHERE cs.status = 'escalated'
+      WHERE cs.status = 'escalated' and user_stage = 'bulk_order'
       ORDER BY cs.started_at DESC;
     `);
 
@@ -226,5 +228,23 @@ exports.getBulkOrderSessionsWithUnread = async (req, res) => {
   } catch (err) {
     console.error('Error fetching bulk order sessions with unread:', err);
     res.status(500).send('Server error');
+  }
+};
+
+exports.getArchivedChats = async (req, res) => {
+  try {
+    const bulkOrders = await pool.query(
+      `SELECT bod.* FROM bulk_orders_data bod INNER JOIN chat_sessions cs on bod.session_id = cs.session_id WHERE cs.status = 'closed' AND cs.user_stage = 'bulk_order' ORDER BY cs.closed_at DESC`);
+    
+    const escalated = await pool.query(
+      `SELECT cq.* FROM chat_query cq INNER JOIN chat_sessions cs on cq.session_id = cs.session_id WHERE cs.status = 'closed' AND cs.user_stage = 'escalated' ORDER BY cs.closed_at DESC`);
+
+    res.json({
+      bulkOrders: bulkOrders.rows,
+      escalated: escalated.rows,
+    });
+  } catch (err) {
+    console.error("Error fetching archived chats:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 };

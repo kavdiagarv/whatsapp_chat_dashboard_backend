@@ -1,8 +1,10 @@
 // controllers/chatController.js
+const jwt = require('jsonwebtoken');
 const pool = require('../db');
 const axios = require('axios');
 const moment = require('moment-timezone');
 const { io } = require("../ws");
+const bcrypt = require("bcrypt");
 
 exports.getSessions = async (req, res) => {
   try {
@@ -246,5 +248,84 @@ exports.getArchivedChats = async (req, res) => {
   } catch (err) {
     console.error("Error fetching archived chats:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+
+exports.createAgent = async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    // Check if email already exists
+    const existing = await pool.query("SELECT * FROM agents WHERE email = $1", [email]);
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ error: "Email already registered" });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Insert new agent
+    const result = await pool.query(
+      "INSERT INTO agents (name, email, password) VALUES ($1, $2, $3) RETURNING id",
+      [name, email, hashedPassword]
+    );
+
+    const newId = result.rows[0].id;
+    const agentId = `AGT-${1000 + newId}`;
+
+    // Update row with agent_id
+    await pool.query("UPDATE agents SET agent_id = $1 WHERE id = $2", [
+      agentId,
+      newId,
+    ]);
+
+    res.json({ success: true, agentId });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Something went wrong" });
+  }
+};
+
+
+exports.loginAgent = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Check if agent exists
+    const result = await pool.query("SELECT * FROM agents WHERE email = $1", [email]);
+    if (result.rows.length === 0) {
+      return res.status(400).json({ message: "Invalid email or password" });
+    }
+
+    const agent = result.rows[0];
+
+    // Compare passwords
+    const isMatch = await bcrypt.compare(password, agent.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Invalid email or password" });
+    }
+
+    if (agent.status !== "active") {
+    return res.status(403).json({ message: "Your account is not active yet. Please contact support." });
+    }
+
+    // Generate JWT
+    const token = jwt.sign(
+      { agentId: agent.agent_id, email: agent.email },
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+
+    res.json({
+      success: true,
+      token,
+      agentId: agent.agent_id,
+      name: agent.name,
+      email: agent.email,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Something went wrong" });
   }
 };

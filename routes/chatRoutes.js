@@ -13,5 +13,7 @@ router.get('/unread/sessions', chatController.getSessionsWithUnread);
 router.get('/bulk-orders', chatController.getBulkOrders);
 router.get('/bulk-orders/unread', chatController.getBulkOrderSessionsWithUnread);
 router.get('/archive', chatController.getArchivedChats);
+router.post('/create-agent', chatController.createAgent);
+router.post('/login', chatController.loginAgent);
 
 module.exports = router;

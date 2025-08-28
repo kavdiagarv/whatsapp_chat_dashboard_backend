@@ -10,8 +10,7 @@ const listenToNotifications = require('./listener');
 dotenv.config();
 const app = express();
 
-app.use(cors({
-    origin: "https://ecofyndsupport.platinum-infotech.com",}));
+app.use(cors());
 app.use(express.json());
 
 // Routes

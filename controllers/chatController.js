@@ -401,14 +401,15 @@ exports.uploadAttachment = [
 
       // ✅ Insert into Postgres
       await pool.query(
-        `INSERT INTO chat_logs (session_id, user_id, message, media_type, direction, timestamp) 
-         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        `INSERT INTO chat_logs (session_id, user_id, message, media_type, direction, file_name, timestamp) 
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
         [
           session_id,        // which session this message belongs to
           user_id || phone,  // fallback to phone if user_id not provided
           s3Url,             // ✅ URL goes into message column
           type,              // "image" or "document"
-          "outbound"
+          "outbound",
+          file.originalname
         ]
       );
 

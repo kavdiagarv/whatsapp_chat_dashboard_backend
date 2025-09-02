@@ -5,6 +5,10 @@ const axios = require('axios');
 const moment = require('moment-timezone');
 const { io } = require("../ws");
 const bcrypt = require("bcrypt");
+const multer = require("multer");
+const { uploadToS3 } = require("../s3");
+require('dotenv').config();
+
 
 exports.getSessions = async (req, res) => {
   try {
@@ -16,15 +20,6 @@ exports.getSessions = async (req, res) => {
   }
 };
 
-// exports.getUserName = async (req, res) => {
-//   try {
-//     const result = await pool.query (`SELECT cq.* FROM chat_query cq INNER JOIN chat_sessions cs ON cs.session_id = cq.session_id WHERE cs.user_stage = 'escalated' ORDER BY cq.timestamp DESC`);
-//     res.join(result.rows);
-//   } catch(error) {
-//     console.error(error);
-//     res.status(500).send('Error fetching escalated user name');
-//   }
-// };
 
 // Add this new controller function
 exports.getEscalatedSessions = async (req, res) => {
@@ -88,7 +83,7 @@ exports.getChatLogs = async (req, res) => {
 async function sendWhatsAppMessage(phone, message) {
   try {
     const res = await axios.post(
-      `https://graph.facebook.com/v23.0/615677088306704/messages`,
+      `https://graph.facebook.com/v23.0/${process.env.WHATSAPP_PHONE_ID}/messages`,
       {
         messaging_product: 'whatsapp',
         to: phone,
@@ -329,3 +324,98 @@ exports.loginAgent = async (req, res) => {
     res.status(500).json({ message: "Something went wrong" });
   }
 };
+
+// --- Send Image ---
+async function sendWhatsAppImage(phone, imageUrl) {
+  try {
+    const res = await axios.post(
+      `https://graph.facebook.com/v23.0/${process.env.WHATSAPP_PHONE_ID}/messages`,
+      {
+        messaging_product: "whatsapp",
+        to: phone,
+        type: "image",
+        image: { link: imageUrl }, // S3 public URL
+      },
+      {
+        headers: {
+          "Authorization": `Bearer EAAKWtJsZColsBO4bk46KADZB36MtohKKZBYySf833guq6YePxaNnhmxsnpy69hlkFpon5k6CChx2v1Sud1WN3Be0NyyLsr9IEXa6ZBU149MyjdqZCEwqPZCc8oRM3Ta4B9yhDyZBdNGOJYmkStiapPmZBDpc3MjrTZCwZCPDDIH3Ocz46hBy4F5vbzvoJyi2xTMZBBAeIXHVlod`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    console.log("WhatsApp image sent:", res.data);
+  } catch (err) {
+    console.error("Error sending image:", err.response?.data || err.message);
+  }
+}
+
+// --- Send Document ---
+async function sendWhatsAppDocument(phone, docUrl, fileName) {
+  try {
+    const res = await axios.post(
+      `https://graph.facebook.com/v23.0/${process.env.WHATSAPP_PHONE_ID}/messages`,
+      {
+        messaging_product: "whatsapp",
+        to: phone,
+        type: "document",
+        document: { link: docUrl, filename: fileName }, // S3 public URL
+      },
+      {
+        headers: {
+          "Authorization": `Bearer EAAKWtJsZColsBO4bk46KADZB36MtohKKZBYySf833guq6YePxaNnhmxsnpy69hlkFpon5k6CChx2v1Sud1WN3Be0NyyLsr9IEXa6ZBU149MyjdqZCEwqPZCc8oRM3Ta4B9yhDyZBdNGOJYmkStiapPmZBDpc3MjrTZCwZCPDDIH3Ocz46hBy4F5vbzvoJyi2xTMZBBAeIXHVlod`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    console.log("WhatsApp document sent:", res.data);
+  } catch (err) {
+    console.error("Error sending document:", err.response?.data || err.message);
+  }
+}
+
+// Multer memory storage (keep file in memory before sending to S3)
+const upload = multer({ storage: multer.memoryStorage() });
+
+// File upload handler
+exports.uploadAttachment = [
+  upload.single("file"), // "file" is the form field name in frontend
+  async (req, res) => {
+    try {
+      const { phone, type, session_id, user_id } = req.body; 
+      // 👆 make sure frontend passes session_id + user_id in request body
+
+      const file = req.file;
+      if (!file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      // Upload file to S3
+      const s3Url = await uploadToS3(file);
+
+      // Send via WhatsApp
+      if (type === "image") {
+        await sendWhatsAppImage(phone, s3Url);
+      } else if (type === "document") {
+        await sendWhatsAppDocument(phone, s3Url, file.originalname);
+      }
+
+      // ✅ Insert into Postgres
+      await pool.query(
+        `INSERT INTO chat_logs (session_id, user_id, message, media_type, direction, timestamp) 
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [
+          session_id,        // which session this message belongs to
+          user_id || phone,  // fallback to phone if user_id not provided
+          s3Url,             // ✅ URL goes into message column
+          type,              // "image" or "document"
+          "outbound"
+        ]
+      );
+
+      res.json({ success: true, url: s3Url });
+    } catch (err) {
+      console.error("Attachment upload error:", err);
+      res.status(500).json({ error: "Upload failed" });
+    }
+  }
+];
